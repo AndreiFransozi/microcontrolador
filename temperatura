@@ -1,0 +1,171 @@
+// Declaração das configurações e funcionalidades do PIC.
+#include "config.h"
+
+// Declaração das bibliotecas padrão da linguagem C.
+#include <stdlib.h>		// comando ftoa().
+
+// Declaração das bibliotecas com as configurações e funcionalidades do PIC.
+#include "usart.h"
+#include "adc.h"
+#include "timers.h"
+#include "lcd.h"
+#include "i2c.h"
+#include "spi.h"
+#include "eeprom.h"
+#include "pwm.h"
+
+//Variáveis Globais de Controle.
+unsigned short ADCResult = 0;
+float temp_lida = 0;
+float temp_desejada = 0;
+//Configurações para formatação de dados de saída.
+unsigned char *Display;
+int status = 0;
+unsigned char *sensor_temp;
+int statusSensor_temp = 0;
+unsigned char *coller;
+int statusCooler = 0;
+unsigned char *resistor;
+int statusResistor = 0;
+
+//-----------------------------------------------------------------------------
+void interrupt ISR(void)
+{
+	// Tratamento da interrupção do buffer de recepção.
+	if (PIR1bits.RCIF)
+	{
+		if (USART_ReceiveChar() == '1')
+		{
+			USART_WriteString("\n\ropcao 1\n\r");
+			PWM_DutyCycle1(1023);
+			PWM_DutyCycle2(0);
+		}
+
+		if (USART_ReceiveChar() == '2')
+		{
+			USART_WriteString("\n\ropcao 2\n\r");
+			PWM_DutyCycle1(0);
+			PWM_DutyCycle2(1023);
+		}
+		
+		if (USART_ReceiveChar() == '3')
+		{
+			USART_WriteString("\n\ropcao 3\n\r");
+			PWM_DutyCycle1(1000);
+			PWM_DutyCycle2(1000);
+		}
+
+		if (USART_ReceiveChar() == '4')
+		{
+			USART_WriteString("\n\ropcao 4\n\r");
+			PWM_DutyCycle1(0);
+			PWM_DutyCycle2(0);
+		}
+
+
+		// Flag de status da Interrupção do buffer de recepção da USART.
+		PIR1bits.RCIF = 0;
+	}
+
+	// Tratamento da interrupção do conversor A/D.
+	if (PIR1bits.ADIF)
+	{
+		// Caso a interrupção seja ativada a manipulação dos dados pode ser feita aqui!	
+
+		// Limpa a flag da interrupção do conversor A/D.
+		PIR1bits.ADIF = 0;
+	}
+
+	// Tratamento da interrupção do Timer0.
+	if (INTCONbits.TMR0IF)
+	{
+		// Caso a interrupção seja ativada a manipulação dos dados pode ser feita aqui!	
+
+		// Reseta a flag do Timer0 para uma nova contagem.
+		INTCONbits.TMR0IF = 0;
+	}
+
+	// Tratamento da interrupção do Timer1.
+	if (PIR1bits.TMR1IF) 
+	{
+		// Caso a interrupção seja ativada a manipulação dos dados pode ser feita aqui!	
+
+		// Resetar a flag do Timer1 para uma nova contagem.
+		PIR1bits.TMR1IF = 0;
+	}
+
+	// Tratamento da interrupção da SPI.
+	if (PIR1bits.SSPIF) 
+	{
+		// Caso a interrupção seja ativada a manipulação dos dados pode ser feita aqui!	
+
+		// Resetar a flag do SPI para uma nova contagem.
+		PIR1bits.SSPIF = 0;
+	}
+}
+
+//-----------------------------------------------------------------------------
+void main(void)
+{
+    TRISA = 0b00000001;		// Configuração dos canais analógicos do PORTA.
+    PORTA = 0b00000001;  	// Inicialização dos canais analógicos do PORTA.
+	TRISB = 0b00110000;		// Configuração das entradas/saídas do PORTB (RB4e5 PWM).
+    PORTB = 0b00000000;  	// Inicialização das entradas/saídas do PORTB.
+	TRISC = 0b10000000;		// Configuração do PORTC - pinos RC7(RX) e RC6(TX).
+    PORTC = 0b11000000; 	// Inicialização dos pinos RX e TX em nível alto (Modo IDLE).
+    TRISD = 0b00000000;		// Configuração das entradas/saídas do PORTD.		
+    PORTD = 0b00000000;  	// Inicialização das das entradas/saídas do PORTD.
+    TRISE = 0b00000000;		// Configuração dos canais analógicos do PORTE.
+    PORTE = 0b00000000;  	// Inicialização dos canais analógicos do PORTE.
+	
+	// Inicialização dos periféricos do microcontrolador.
+	USART_Init(115200);		// Inicialização do módulo USART.
+	PWM_Init();	 			// 1.125khz, prescaler 16, 1024 passos.
+	ADC_Init();				// Inicialização do módulo do conversor A/D.
+
+	// Ativação das interrupções do microcontrolador.
+	INTCONbits.PEIE	= 1;	// Habilita Interrupção de Periféricos do Microcontrolador.
+	INTCONbits.GIE	= 1;	// Habilita Interrupção Global.
+
+	USART_WriteString("Inicializando o PIC16F877A\n\r");
+	USART_WriteString("USART: 115.200bps\n\r");
+
+	PWM_DutyCycle1(0);
+	PWM_DutyCycle2(0);
+
+
+	__delay_ms(1000);
+
+	// Laço principal do firmware.
+	while(1)
+	{
+		ADCResult = ADC_Read(0);
+
+		// Formatação da temperatura lida e do SetPoint do sistema.
+		temp_lida = (ADCResult * 0.004887585532746823069403714565 * 100);
+
+		// Formatação dos valores de saída.
+		printf ("Digite a temperatura desejada: ");
+		scanf ("%f", &temp_desejada);
+		Display = ftoa(temp_lida, &status);		// Converte um valor real em string para visualização.
+		USART_WriteString("Temperatura: ");		// Envia para porta serial o canal lido.
+		USART_WriteString(Display);				// Envia para porta
+		USART_WriteChar('\r');
+
+		__delay_ms(200);
+		if(USART > temp_desejada) ;
+	statusCooler = 1 && statusResistor = 0;
+	}
+	if (USART < temp_desejada)
+		{
+		statusSensor_temp = 1;
+		statusCooler = 0;
+		statusResistor = 1;
+		}
+	if (USART < temp_desejada)
+		{
+		statusSensor_temp = 1;
+		statusCooler = 0;
+		statusResistor = 0;
+		}
+}
